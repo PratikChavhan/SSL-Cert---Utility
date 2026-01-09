@@ -9,6 +9,7 @@ using Org.BouncyCastle.OpenSsl;
 using Org.BouncyCastle.Security;
 using Org.BouncyCastle.X509;
 using Org.BouncyCastle.Asn1.X509;
+using Org.BouncyCastle.Crypto.Parameters;
 
 namespace SSL_Certificate___KeysExtraction
 {
@@ -41,7 +42,12 @@ namespace SSL_Certificate___KeysExtraction
 						getPublicKeyFromPfx();
 						break;
 
-					case "N":
+
+                    case "4":
+                        getPublicKeyFromPrivateKey();
+                        break;
+
+                    case "N":
 						Console.WriteLine("Stopping...");
 						return;
 
@@ -190,8 +196,55 @@ namespace SSL_Certificate___KeysExtraction
 			}
 		}
 
-		// Reads password from console without echo
-		private static string ReadPassword()
+        public static void getPublicKeyFromPrivateKey()
+        {
+            Console.Write("Enter path to Private key file: ");
+            string privateKeyPath = Console.ReadLine();
+
+            if (string.IsNullOrWhiteSpace(privateKeyPath) || !File.Exists(privateKeyPath))
+            {
+                Console.WriteLine("❌ Invalid Private Key path.");
+                return;
+            }
+
+            try
+            {
+                AsymmetricKeyParameter privateKey;
+
+                using (TextReader reader = File.OpenText(privateKeyPath))
+                {
+                    PemReader pemReader = new PemReader(reader);
+                    privateKey = (AsymmetricKeyParameter)pemReader.ReadObject();
+                }
+
+                // Convert to RSA parameters
+                RsaPrivateCrtKeyParameters rsaPrivate =
+                    (RsaPrivateCrtKeyParameters)privateKey;
+
+                RSAParameters rsaParams = DotNetUtilities.ToRSAParameters(rsaPrivate);
+
+                using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
+                {
+                    rsa.ImportParameters(rsaParams);
+
+                    // Export PUBLIC KEY
+                    RSAParameters publicParams = rsa.ExportParameters(false);
+
+                    string publicKeyBase64 = Convert.ToBase64String(publicParams.Modulus);
+
+                    Console.WriteLine("===== RSA Public Key (Base64 Modulus) =====");
+                    Console.WriteLine(publicKeyBase64);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("❌ Error: " + ex.Message);
+            }
+        }
+
+
+        // Reads password from console without echo
+        private static string ReadPassword()
 		{
 			string password = string.Empty;
 			ConsoleKeyInfo key;
