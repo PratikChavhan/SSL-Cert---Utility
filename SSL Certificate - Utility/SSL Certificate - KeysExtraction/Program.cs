@@ -10,6 +10,9 @@ using Org.BouncyCastle.Security;
 using Org.BouncyCastle.X509;
 using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Asn1.Pkcs;
+using Org.BouncyCastle.Pkcs;
+using Org.BouncyCastle.Utilities.IO.Pem;
 
 namespace SSL_Certificate___KeysExtraction
 {
@@ -23,6 +26,7 @@ namespace SSL_Certificate___KeysExtraction
 				Console.WriteLine("1 -> Get Public Key from HTTPS site");
 				Console.WriteLine("2 -> Export Private Key from PFX");
 				Console.WriteLine("3 -> Get Public Key from PFX");
+				Console.WriteLine("4 -> Get Public Key from Private key");
 				Console.WriteLine("N -> Stop");
 				Console.Write("Enter choice: ");
 
@@ -125,40 +129,46 @@ namespace SSL_Certificate___KeysExtraction
 			Console.Write("Enter output PEM path (e.g. C:\\private_key_pkcs8.pem): ");
 			string outPemPath = Console.ReadLine();
 
-			try
-			{
-				var cert = new X509Certificate2(pfxPath, pfxPassword,
-					X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
+            try
+            {
+                var cert = new X509Certificate2(
+                    pfxPath,
+                    pfxPassword,
+                    X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet
+                );
 
-				if (!cert.HasPrivateKey)
-				{
-					Console.WriteLine("❌ No private key found in the PFX.");
-					return;
-				}
+                if (!cert.HasPrivateKey)
+                    throw new Exception("No private key in PFX.");
 
-				var rsa = cert.PrivateKey as RSACryptoServiceProvider;
-				if (rsa == null)
-				{
-					Console.WriteLine("❌ RSA private key not found or not supported.");
-					return;
-				}
+                var rsa = cert.PrivateKey as RSACryptoServiceProvider;
+                if (rsa == null)
+                    throw new Exception("Not an RSA key.");
 
-				AsymmetricCipherKeyPair keyPair = DotNetUtilities.GetKeyPair(rsa);
+                // Convert .NET RSA → BouncyCastle
+                AsymmetricCipherKeyPair keyPair = DotNetUtilities.GetKeyPair(rsa);
 
-				using (var sw = new StreamWriter(outPemPath))
-				{
-					var pemWriter = new PemWriter(sw);
-					pemWriter.WriteObject(keyPair.Private); // PKCS#8 PRIVATE KEY
-				}
+                // Create PKCS#8 structure
+                PrivateKeyInfo pkcs8 =
+                    PrivateKeyInfoFactory.CreatePrivateKeyInfo(keyPair.Private);
 
-				Console.WriteLine("\n✅ Private key exported successfully to:");
-				Console.WriteLine(outPemPath);
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine("❌ Error: " + ex.Message);
-			}
-		}
+                // 🔥 FORCE PKCS#8 PEM OUTPUT
+                byte[] pkcs8Der = pkcs8.GetDerEncoded();
+                PemObject pemObject = new PemObject("PRIVATE KEY", pkcs8Der);
+
+                using (var sw = new StreamWriter(outPemPath))
+                {
+                    Org.BouncyCastle.OpenSsl.PemWriter pemWriter = new Org.BouncyCastle.OpenSsl.PemWriter(sw);
+                    pemWriter.WriteObject(pemObject);
+                    sw.Flush();
+                }
+
+                Console.WriteLine("✅ PKCS#8 PRIVATE KEY generated successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("❌ Error: " + ex.Message);
+            }
+        }
 
 		// ✅ Option 3 - Extract public key from PFX (same as HTTPS one)
 		public static void getPublicKeyFromPfx()
@@ -213,7 +223,7 @@ namespace SSL_Certificate___KeysExtraction
 
                 using (TextReader reader = File.OpenText(privateKeyPath))
                 {
-                    PemReader pemReader = new PemReader(reader);
+                    Org.BouncyCastle.OpenSsl.PemReader pemReader = new Org.BouncyCastle.OpenSsl.PemReader(reader);
                     privateKey = (AsymmetricKeyParameter)pemReader.ReadObject();
                 }
 
