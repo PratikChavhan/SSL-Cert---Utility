@@ -221,30 +221,28 @@ namespace SSL_Certificate___KeysExtraction
             {
                 AsymmetricKeyParameter privateKey;
 
-                using (TextReader reader = File.OpenText(privateKeyPath))
+                using (var reader = File.OpenText(privateKeyPath))
                 {
-                    Org.BouncyCastle.OpenSsl.PemReader pemReader = new Org.BouncyCastle.OpenSsl.PemReader(reader);
+                    var pemReader = new Org.BouncyCastle.OpenSsl.PemReader(reader);
                     privateKey = (AsymmetricKeyParameter)pemReader.ReadObject();
                 }
 
-                // Convert to RSA parameters
-                RsaPrivateCrtKeyParameters rsaPrivate =
-                    (RsaPrivateCrtKeyParameters)privateKey;
+                if (!privateKey.IsPrivate)
+                    throw new Exception("Not a private key");
 
-                RSAParameters rsaParams = DotNetUtilities.ToRSAParameters(rsaPrivate);
+                var rsaPrivate = (RsaPrivateCrtKeyParameters)privateKey;
 
-                using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
-                {
-                    rsa.ImportParameters(rsaParams);
+                RsaKeyParameters rsaPublic =
+                    new RsaKeyParameters(false, rsaPrivate.Modulus, rsaPrivate.PublicExponent);
 
-                    // Export PUBLIC KEY
-                    RSAParameters publicParams = rsa.ExportParameters(false);
+                SubjectPublicKeyInfo spki =
+                    SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(rsaPublic);
 
-                    string publicKeyBase64 = Convert.ToBase64String(publicParams.Modulus);
+                byte[] derBytes = spki.GetDerEncoded();
+                string base64Key = Convert.ToBase64String(derBytes);
 
-                    Console.WriteLine("===== RSA Public Key (Base64 Modulus) =====");
-                    Console.WriteLine(publicKeyBase64);
-                }
+                Console.WriteLine("\n===== RSA Public Key (DER -> Base64) =====");
+                Console.WriteLine(base64Key);
             }
             catch (Exception ex)
             {
